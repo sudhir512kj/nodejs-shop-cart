@@ -4,20 +4,16 @@ var Cart = require('../models/cart');
 
 var Product = require('../models/product');
 
-const keyPublishable = 'pk_test_gHblstVb94LWrDR5HcFxXlZu';
-const keySecret = 'sk_test_ot45FEByXR2dhAEipmOc0SQV';
-
-const stripe = require("stripe")(keySecret);
-
 /* GET home page. */
 router.get('/', function(req, res, next) {
+  var successMsg = req.flash('success')[0];
   Product.find(function(err, docs) {
     var productChunks = [];
     var chunkSize = 3;
     for (var i = 0; i < docs.length; i+=chunkSize) {
       productChunks.push(docs.slice(i, i+chunkSize));
     }
-    res.render('shop/index', { title: 'Shopping Cart', products: productChunks });
+    res.render('shop/index', { title: 'Shopping Cart', products: productChunks, successMsg: successMsg, noMessages: !successMsg });
   });
 });
 
@@ -49,28 +45,34 @@ router.get('/checkout', function(req, res, next) {
     return res.redirect('/shopping-cart');
   }
   var cart = new Cart(req.session.cart);
-  res.render('shop/checkout', {total: cart.totalPrice});
+  var errMsg = req.flash('error')[0];
+  res.render('shop/checkout', {total: cart.totalPrice, errMsg: errMsg, noError: !errMsg});
 });
 
-router.post("/charge", function(req, res) {
+router.post('/checkout', function (req, res, next) {
+  if (!req.session.cart) {
+    return res.redirect('/shopping-cart');
+  }
+  var cart = new Cart(req.session.cart);
 
-    let amount = req.body.chargeAmount*100;
+  var stripe = require("stripe")(
+    "sk_test_ot45FEByXR2dhAEipmOc0SQV"
+  );
 
-    // create a customer
-    stripe.customers.create({
-        email: req.body.stripeEmail, // customer email, which user need to enter while making payment
-        source: req.body.stripeToken // token for the given card
-    })
-    .then(customer =>
-        stripe.charges.create({ // charge the customer
-        amount,
-        description: "Test payment",
-            currency: "usd",
-            customer: customer.id
-        }))
-    .then(req.session.cart = null)
-    .then(charge => res.render("shop/charge")); // render the charge view: views/charge.pug
-
+  stripe.charges.create({
+    amount: cart.totalPrice * 100,
+    currency: "usd",
+    source: req.body.stripeToken, // obtained with Stripe.js
+    description: "Test Charge"
+  }, function(err, charge) {
+      if (err) {
+        req.flash('error', err.message);
+        return res.redirect('/checkout');
+      }
+      req.flash('success', 'Successfully bought product!!');
+      req.session.cart = null;
+      res.redirect('/');
+  });
 });
 
 module.exports = router;
